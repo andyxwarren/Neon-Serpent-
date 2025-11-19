@@ -1,0 +1,5 @@
+{
+  "name": "NeonSerpent.io",
+  "description": "A high-performance, neon-styled multiplayer snake battle game inspired by gulper.io. Features smooth canvas rendering, bot AI, and Gemini-powered commentary.",
+  "requestFramePermissions": []
+}
