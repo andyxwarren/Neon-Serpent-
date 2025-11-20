@@ -10,6 +10,11 @@ export const FOOD_COUNT = 600;
 export const BOT_COUNT = 15;
 export const TARGET_FPS = 60;
 
+// Boost Mechanics
+export const MAX_BOOST_ENERGY = 100;
+export const BOOST_COST = 0.2; // Energy lost per frame while boosting (Reduced for longer duration)
+export const BOOST_REGEN = 0.2; // Energy gained per frame while resting
+
 export const GAME_SPEEDS = {
   SLOW: 0.7,
   NORMAL: 1.0,
@@ -37,7 +42,9 @@ export const SNAKE_COLORS = [
   'rainbow'
 ];
 
-export const SNAKE_PATTERNS = ['none', 'stripes', 'spots'];
+export const SNAKE_PATTERNS = ['none', 'stripes', 'spots', 'waves', 'camouflage'];
+export const SNAKE_SKINS = ['standard', 'digital', 'shard', 'ghost', 'pixel', 'cobra', 'flames'];
+export const SNAKE_FACES = ['none', 'happy', 'angry', 'confused', 'cheeky', 'evil'];
 
 export const FOOD_COLORS = [
   '#00f3ff', // Blue

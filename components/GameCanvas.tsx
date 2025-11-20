@@ -1,10 +1,10 @@
 
 import React, { useEffect, useRef } from 'react';
-import { GameState, Point, Snake, Food, Particle, Camera, LeaderboardEntry, SnakePattern, GameSpeedMode } from '../types';
+import { GameState, Point, Snake, Food, Particle, Camera, LeaderboardEntry, SnakePattern, GameSpeedMode, SnakeSkin, SnakeFace } from '../types';
 import { 
   WORLD_SIZE, INITIAL_SNAKE_LENGTH, BASE_SPEED, BOOST_SPEED, 
-  TURN_SPEED, SEGMENT_DISTANCE, FOOD_COUNT, BOT_COUNT, COLORS, SNAKE_COLORS, FOOD_COLORS, FOOD_VALUE, SNAKE_PATTERNS,
-  GAME_SPEEDS, TARGET_FPS
+  TURN_SPEED, SEGMENT_DISTANCE, FOOD_COUNT, BOT_COUNT, COLORS, SNAKE_COLORS, FOOD_COLORS, FOOD_VALUE, SNAKE_PATTERNS, SNAKE_SKINS, SNAKE_FACES,
+  GAME_SPEEDS, TARGET_FPS, MAX_BOOST_ENERGY, BOOST_COST, BOOST_REGEN
 } from '../constants';
 
 interface GameCanvasProps {
@@ -12,9 +12,10 @@ interface GameCanvasProps {
   playerName: string;
   playerColor: string;
   playerPattern: SnakePattern;
+  playerSkin: SnakeSkin;
+  playerFace: SnakeFace;
   gameSpeed: GameSpeedMode;
   isPaused: boolean;
-  isTouchBoosting: boolean;
   onGameOver: (score: number) => void;
   onScoreUpdate: (score: number) => void;
   onKill: () => void;
@@ -26,9 +27,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   playerName, 
   playerColor, 
   playerPattern,
+  playerSkin,
+  playerFace,
   gameSpeed,
   isPaused,
-  isTouchBoosting,
   onGameOver, 
   onScoreUpdate, 
   onKill,
@@ -36,14 +38,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
-  // Mutable game state refs (for performance, avoiding React render cycle)
+  // Mutable game state refs
   const playerRef = useRef<Snake | null>(null);
   const botsRef = useRef<Snake[]>([]);
   const foodRef = useRef<Food[]>([]);
   const particlesRef = useRef<Particle[]>([]);
   const cameraRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
   const mouseRef = useRef<Point>({ x: 0, y: 0 });
-  const animationFrameRef = useRef<number>();
+  const animationFrameRef = useRef<number>(0);
   const lastLeaderboardUpdateRef = useRef<number>(0);
   const shakeRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
@@ -52,44 +54,33 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const isMouseBoostRef = useRef(false);
   const isKeyBoostRef = useRef(false);
   const isPausedRef = useRef(isPaused);
-  const isTouchBoostingRef = useRef(isTouchBoosting);
 
   // Sync refs with props
   useEffect(() => {
     isPausedRef.current = isPaused;
-    // When unpausing, reset lastTime to avoid huge delta jump
     if (!isPaused) {
         lastTimeRef.current = 0;
     }
   }, [isPaused]);
 
-  useEffect(() => {
-    isTouchBoostingRef.current = isTouchBoosting;
-  }, [isTouchBoosting]);
-
   // --- Helpers ---
 
   const randomColor = () => SNAKE_COLORS[Math.floor(Math.random() * SNAKE_COLORS.length)];
   const randomPattern = () => SNAKE_PATTERNS[Math.floor(Math.random() * SNAKE_PATTERNS.length)] as SnakePattern;
+  const randomSkin = () => Math.random() > 0.8 ? SNAKE_SKINS[Math.floor(Math.random() * SNAKE_SKINS.length)] as SnakeSkin : 'standard';
+  const randomFace = () => Math.random() > 0.5 ? SNAKE_FACES[Math.floor(Math.random() * SNAKE_FACES.length)] as SnakeFace : 'none';
 
   const triggerShake = (amount: number) => {
-    // Add shake, capped at a reasonable maximum to prevent nausea
     shakeRef.current = Math.min(50, shakeRef.current + amount);
   };
 
   const getSnakeWidth = (snake: Snake) => {
-    // Base width is 22. Grows with length.
     const extraWidth = Math.max(0, snake.body.length - INITIAL_SNAKE_LENGTH) * 0.1;
-    
-    // Cap the maximum added width to 40 (max total width 62px)
     const baseWidth = 22 + Math.min(40, extraWidth);
-    
-    // Boosting makes the snake look slightly aerodynamic/thinner
     return snake.isBoosting ? baseWidth * 0.85 : baseWidth;
   };
 
   const getSafeSpawnPosition = (): Point => {
-    // If player is dead or doesn't exist, random spawn is fine
     if (!playerRef.current || playerRef.current.isDead) {
       return { x: Math.random() * WORLD_SIZE, y: Math.random() * WORLD_SIZE };
     }
@@ -112,7 +103,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     return { x: Math.random() * WORLD_SIZE, y: Math.random() * WORLD_SIZE };
   };
 
-  const createSnake = (id: string, name: string, isBot: boolean, startX: number, startY: number, overrideColor?: string, overridePattern?: SnakePattern): Snake => {
+  const createSnake = (id: string, name: string, isBot: boolean, startX: number, startY: number, overrideColor?: string, overridePattern?: SnakePattern, overrideSkin?: SnakeSkin, overrideFace?: SnakeFace): Snake => {
     const body: Point[] = [];
     for (let i = 0; i < INITIAL_SNAKE_LENGTH; i++) {
       body.push({ x: startX, y: startY + i * SEGMENT_DISTANCE });
@@ -126,10 +117,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       speed: BASE_SPEED,
       color: overrideColor || (isBot ? randomColor() : COLORS.neonBlue),
       pattern: overridePattern || (isBot ? randomPattern() : 'none'),
+      skin: overrideSkin || (isBot ? randomSkin() : 'standard'),
+      face: overrideFace || (isBot ? randomFace() : 'none'),
       isBoosting: false,
+      boostValue: MAX_BOOST_ENERGY,
       isDead: false,
       score: 0,
       isBot,
+      killStreak: 0
     };
   };
 
@@ -151,21 +146,101 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     return foods;
   };
 
-  const createParticles = (x: number, y: number, color: string, count: number) => {
+  const createParticles = (x: number, y: number, color: string, count: number, speedBase: number = 10, sizeBase: number = 4) => {
     for (let i = 0; i < count; i++) {
       const pColor = color === 'rainbow' 
           ? `hsl(${Math.random() * 360}, 100%, 50%)` 
           : color;
 
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * speedBase;
+
       particlesRef.current.push({
         id: Math.random().toString(),
         x,
         y,
-        vx: (Math.random() - 0.5) * 10,
-        vy: (Math.random() - 0.5) * 10,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
         life: 1.0,
-        color: pColor
+        color: pColor,
+        size: sizeBase * (0.5 + Math.random() * 0.5),
+        decay: 0.02,
+        shrink: true
       });
+    }
+  };
+
+  const createSparkles = (x: number, y: number, count: number) => {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 20 + 5;
+      particlesRef.current.push({
+        id: `sparkle-${Math.random()}`,
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: Math.random() * 0.4 + 0.1, // Short lived
+        color: '#ffffff',
+        size: Math.random() * 2 + 1,
+        decay: 0.05,
+        shrink: true
+      });
+    }
+  };
+
+  const createExplosion = (x: number, y: number, color: string) => {
+    // 1. Debris (Snake Body Parts)
+    for (let i = 0; i < 25; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 12 + 8;
+        const pColor = color === 'rainbow' ? `hsl(${Math.random()*360}, 100%, 50%)` : color;
+        
+        particlesRef.current.push({
+            id: `debris-${Math.random()}`,
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1.0,
+            color: pColor,
+            size: Math.random() * 5 + 3,
+            decay: 0.015 + Math.random() * 0.015,
+            shrink: true
+        });
+    }
+
+    // 2. Smoke / Dust Cloud
+    for (let i = 0; i < 15; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 4 + 1;
+        particlesRef.current.push({
+            id: `smoke-${Math.random()}`,
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1.0,
+            color: 'rgba(255, 255, 255, 0.15)', // Translucent white smoke
+            size: Math.random() * 20 + 15,
+            decay: 0.008 + Math.random() * 0.005, // Slow decay
+            shrink: false // Don't shrink, just fade
+        });
+    }
+    
+    // 3. Flash / Sparks
+    for (let i = 0; i < 12; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 25 + 15;
+        particlesRef.current.push({
+            id: `flash-${Math.random()}`,
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1.0,
+            color: '#ffffff',
+            size: Math.random() * 3 + 2,
+            decay: 0.08, // Dies very fast
+            shrink: true
+        });
     }
   };
 
@@ -175,18 +250,22 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const startX = WORLD_SIZE / 2;
     const startY = WORLD_SIZE / 2;
     
-    playerRef.current = createSnake('player', playerName, false, startX, startY, playerColor, playerPattern);
+    playerRef.current = createSnake('player', playerName, false, startX, startY, playerColor, playerPattern, playerSkin, playerFace);
     
+    createExplosion(startX, startY, '#ffffff');
+
     const newBots: Snake[] = [];
     for (let i = 0; i < BOT_COUNT; i++) {
       const { x, y } = getSafeSpawnPosition();
-      newBots.push(createSnake(
+      const bot = createSnake(
         `bot-${i}`, 
         `Bot ${i + 1}`, 
         true, 
         x, 
         y
-      ));
+      );
+      newBots.push(bot);
+      createParticles(x, y, '#ffffff', 10, 8, 3);
     }
     botsRef.current = newBots;
     foodRef.current = createFood(FOOD_COUNT);
@@ -199,58 +278,54 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     isKeyBoostRef.current = false;
   };
 
-  // Added timeScale to normalize speed regardless of framerate
-  const updateSnake = (snake: Snake, targetX: number, targetY: number, timeScale: number) => {
+  const updateSnake = (snake: Snake, targetX: number, targetY: number, timeScale: number, isMouseBoosting: boolean, isKeyBoosting: boolean) => {
     if (snake.isDead) return;
 
-    // 1. Angle calculation
+    // Boost Logic (Energy Based)
+    const wantsToBoost = isMouseBoosting || isKeyBoosting || (snake.isBot && snake.isBoosting);
+    
+    if (wantsToBoost && snake.boostValue > 0) {
+        snake.isBoosting = true;
+        snake.boostValue = Math.max(0, snake.boostValue - BOOST_COST * timeScale);
+    } else {
+        snake.isBoosting = false;
+        if (snake.boostValue < MAX_BOOST_ENERGY) {
+            snake.boostValue = Math.min(MAX_BOOST_ENERGY, snake.boostValue + BOOST_REGEN * timeScale);
+        }
+    }
+
+    // Movement
     const head = snake.body[0];
     const dx = targetX - head.x;
     const dy = targetY - head.y;
     
     let desiredAngle = Math.atan2(dy, dx);
-    
-    // Smooth turning
     let diff = desiredAngle - snake.angle;
     while (diff < -Math.PI) diff += Math.PI * 2;
     while (diff > Math.PI) diff -= Math.PI * 2;
     
-    // Turn speed scaled by time
     snake.angle += Math.sign(diff) * Math.min(Math.abs(diff), TURN_SPEED * timeScale);
 
-    // 2. Move Head
     const speed = (snake.isBoosting ? BOOST_SPEED : BASE_SPEED) * timeScale;
     
-    // Lose mass if boosting
-    if (snake.isBoosting && snake.body.length > INITIAL_SNAKE_LENGTH) {
-        // Chance scaled by time so it doesn't drain faster at high fps or low fps
-        if (Math.random() < 0.1 * timeScale) {
-           snake.body.pop();
-        }
-    }
-
     const newHead = {
       x: head.x + Math.cos(snake.angle) * speed,
       y: head.y + Math.sin(snake.angle) * speed
     };
 
-    // Boundary Check
     if (newHead.x < 0 || newHead.x > WORLD_SIZE || newHead.y < 0 || newHead.y > WORLD_SIZE) {
       snake.isDead = true;
       if (snake.id === 'player') triggerShake(30);
+      createExplosion(head.x, head.y, snake.color);
       return;
     }
 
-    // 3. Body Following
-    // Logic constraint: Body segments always follow the one ahead by fixed distance.
-    // This creates the "pulling" effect.
     const newBody = [newHead];
     for (let i = 1; i < snake.body.length; i++) {
       const prevSegment = newBody[i - 1]; 
       const currSegment = snake.body[i];
       
       const angle = Math.atan2(prevSegment.y - currSegment.y, prevSegment.x - currSegment.x);
-      
       const newSegX = prevSegment.x - Math.cos(angle) * SEGMENT_DISTANCE;
       const newSegY = prevSegment.y - Math.sin(angle) * SEGMENT_DISTANCE;
       
@@ -266,28 +341,28 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const snakeWidth = getSnakeWidth(snake);
     const headRadius = snakeWidth / 2; 
 
-    // Check Food
     for (let i = foodRef.current.length - 1; i >= 0; i--) {
       const f = foodRef.current[i];
       const d = Math.hypot(head.x - f.x, head.y - f.y);
       if (d < headRadius + f.originalRadius + 10) { 
         snake.score += f.value;
-        
         const tail = snake.body[snake.body.length - 1];
         snake.body.push({ ...tail });
+        createParticles(f.x, f.y, f.color, 4, 5, 3);
         
+        if (snake.id === 'player') {
+            createSparkles(f.x, f.y, 5);
+        }
+
         foodRef.current.splice(i, 1);
-        
         if (Math.random() < 0.5) {
              foodRef.current.push(...createFood(1));
         }
       }
     }
 
-    // Check Other Snakes
     for (const other of allSnakes) {
       if (other.id === snake.id || other.isDead) continue;
-      
       const otherWidth = getSnakeWidth(other);
       const otherRadius = otherWidth / 2;
       const collisionDistance = headRadius + otherRadius - 4; 
@@ -295,20 +370,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       for (let i = 0; i < other.body.length; i += 2) {
         const seg = other.body[i];
         const d = Math.hypot(head.x - seg.x, head.y - seg.y);
-        
         if (d < collisionDistance) { 
           snake.isDead = true;
-          createParticles(head.x, head.y, snake.color, 20);
+          other.killStreak += 1; // Increment killstreak for the winner
+          
+          // Use new explosion effect instead of generic particles
+          createExplosion(head.x, head.y, snake.color);
           
           if (other.id === 'player') {
              onKill();
-             triggerShake(15);
+             triggerShake(20);
+             createSparkles(head.x, head.y, 30); // Extra sparkles for player kill
           }
-
           if (snake.id === 'player') {
-             triggerShake(30);
+             triggerShake(35);
           }
-
           const foodFromDead = snake.body.map(p => ({
             id: Math.random().toString(),
             x: p.x + (Math.random() - 0.5) * 10,
@@ -320,7 +396,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             value: 5
           }));
           foodRef.current.push(...foodFromDead);
-          
           return;
         }
       }
@@ -330,10 +405,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const updateBots = (timeScale: number) => {
     botsRef.current.forEach(bot => {
       if (bot.isDead) return;
-
       const head = bot.body[0];
-      
-      // 1. Avoid Boundaries
       const margin = 100;
       let avoidX = 0; 
       let avoidY = 0;
@@ -344,11 +416,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
       if (avoidX !== 0 || avoidY !== 0) {
          bot.targetAngle = Math.atan2(avoidY, avoidX);
-         updateSnake(bot, head.x + avoidX * 100, head.y + avoidY * 100, timeScale);
+         updateSnake(bot, head.x + avoidX * 100, head.y + avoidY * 100, timeScale, false, false);
          return;
       }
 
-      // 2. Find nearest food
       let nearestFood: Food | null = null;
       let minDist = Infinity;
       for (let i = 0; i < foodRef.current.length; i+=5) {
@@ -368,20 +439,19 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         targetY = nearestFood.y;
       }
       
-      // Random jitter (scaled by time logic slightly)
       if (Math.random() < 0.05 * timeScale) {
         targetX += (Math.random() - 0.5) * 400;
         targetY += (Math.random() - 0.5) * 400;
       }
 
-      // Sustained Bot Boost Logic
+      // Bot Boosting Logic
       if (bot.isBoosting) {
-         if (Math.random() < 0.05 * timeScale) bot.isBoosting = false;
+         if (Math.random() < 0.05 * timeScale || bot.boostValue < 10) bot.isBoosting = false;
       } else {
-         if (Math.random() < 0.005 * timeScale) bot.isBoosting = true;
+         if (Math.random() < 0.005 * timeScale && bot.boostValue > 50) bot.isBoosting = true;
       }
 
-      updateSnake(bot, targetX, targetY, timeScale);
+      updateSnake(bot, targetX, targetY, timeScale, false, false);
     });
   };
 
@@ -391,17 +461,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
-    // Camera Follow Player (Smooth lerp, scaled by time)
     if (playerRef.current && !playerRef.current.isDead) {
       const head = playerRef.current.body[0];
-      // 0.1 is the lerp factor at 60fps. Scaling roughly by timeScale
       const lerp = 1 - Math.pow(0.9, timeScale); 
       cameraRef.current.x += (head.x - cameraRef.current.x) * lerp;
       cameraRef.current.y += (head.y - cameraRef.current.y) * lerp;
     }
     const cam = cameraRef.current;
 
-    // --- Determine Leader (High Score) ---
     let leaderId: string | null = null;
     let maxScore = -1;
     
@@ -416,31 +483,24 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             leaderId = s.id;
         }
     });
-    
     if (maxScore <= 0) leaderId = null;
 
-    // --- Draw Background ---
     ctx.fillStyle = COLORS.background;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
     ctx.save();
     
-    // Apply Shake
     let shakeX = 0; 
     let shakeY = 0;
     if (shakeRef.current > 0.5) {
         shakeX = (Math.random() - 0.5) * shakeRef.current;
         shakeY = (Math.random() - 0.5) * shakeRef.current;
-        // Decay shake
         shakeRef.current *= Math.pow(0.9, timeScale);
     } else {
         shakeRef.current = 0;
     }
 
-    // Center Camera with Shake
     ctx.translate(canvas.width / 2 - cam.x + shakeX, canvas.height / 2 - cam.y + shakeY);
 
-    // Draw Grid
     ctx.strokeStyle = COLORS.grid;
     ctx.lineWidth = 2;
     const gridSize = 100;
@@ -460,13 +520,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
     ctx.stroke();
 
-    // Draw World Borders
     ctx.strokeStyle = '#ff0044';
     ctx.lineWidth = 10;
     ctx.strokeRect(0, 0, WORLD_SIZE, WORLD_SIZE);
 
-    // --- Draw Food ---
-    const time = Date.now() / 250; // Pulsing based on absolute time
+    const time = Date.now() / 250; 
     
     for (const f of foodRef.current) {
        if (Math.abs(f.x - cam.x) > canvas.width/2 + 50 || Math.abs(f.y - cam.y) > canvas.height/2 + 50) continue;
@@ -484,77 +542,218 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
        ctx.shadowBlur = 0; 
     }
 
-    // --- Draw Snakes ---
     const drawSnake = (snake: Snake) => {
        if (snake.isDead) return;
        
        const isBoosting = snake.isBoosting;
        const width = getSnakeWidth(snake);
        const isRainbow = snake.color === 'rainbow';
+       const isPlayer = snake.id === 'player';
+       const skin = snake.skin || 'standard';
        
-       ctx.lineCap = 'round';
-       ctx.lineJoin = 'round';
+       let lineCap: CanvasLineCap = 'round';
+       let lineJoin: CanvasLineJoin = 'round';
+       let alpha = 1.0;
+
+       if (skin === 'digital') {
+           lineCap = 'square';
+           lineJoin = 'bevel';
+       } else if (skin === 'shard') {
+           lineCap = 'butt';
+           lineJoin = 'miter';
+       } else if (skin === 'ghost') {
+           alpha = 0.6;
+       }
+
+       ctx.lineCap = lineCap;
+       ctx.lineJoin = lineJoin;
+       ctx.globalAlpha = alpha;
        
        // Aura
        if (isBoosting) {
           ctx.save();
-          ctx.globalAlpha = 0.25;
+          ctx.globalAlpha = 0.25 * alpha;
           ctx.lineWidth = width + 16;
           ctx.strokeStyle = isRainbow ? '#ffffff' : snake.color;
-          ctx.beginPath();
-          if (snake.body.length > 0) {
-            ctx.moveTo(snake.body[0].x, snake.body[0].y);
-            for (let i = 1; i < snake.body.length; i++) {
-                ctx.lineTo(snake.body[i].x, snake.body[i].y);
-            }
+          
+          if (skin === 'pixel') {
+               for (let i = 0; i < snake.body.length; i++) {
+                   const p = snake.body[i];
+                   ctx.fillStyle = isRainbow ? '#ffffff' : snake.color;
+                   ctx.fillRect(p.x - (width + 16)/2, p.y - (width + 16)/2, width + 16, width + 16);
+               }
+          } else {
+              ctx.beginPath();
+              if (snake.body.length > 0) {
+                ctx.moveTo(snake.body[0].x, snake.body[0].y);
+                for (let i = 1; i < snake.body.length; i++) {
+                    ctx.lineTo(snake.body[i].x, snake.body[i].y);
+                }
+              }
+              ctx.stroke();
           }
-          ctx.stroke();
           ctx.restore();
        }
 
-       // Body
-       ctx.lineWidth = width;
+       // Outline Pass
+       ctx.save();
+       ctx.shadowBlur = 0;
+       ctx.globalAlpha = alpha;
        
-       if (isRainbow) {
-           ctx.save();
-           ctx.shadowBlur = isBoosting ? 40 : 15;
-           ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
-           ctx.strokeStyle = '#ffffff';
+       if (skin === 'pixel') {
+           ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+           const outlineSize = width + 4;
+           for (const p of snake.body) {
+               ctx.fillRect(p.x - outlineSize/2, p.y - outlineSize/2, outlineSize, outlineSize);
+           }
+       } else {
+           ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+           ctx.lineWidth = width + 4; 
            ctx.beginPath();
            if (snake.body.length > 0) {
-             ctx.moveTo(snake.body[0].x, snake.body[0].y);
-             for (let i = 1; i < snake.body.length; i++) {
-                 ctx.lineTo(snake.body[i].x, snake.body[i].y);
-             }
+               ctx.moveTo(snake.body[0].x, snake.body[0].y);
+               for (let i = 1; i < snake.body.length; i++) {
+                   ctx.lineTo(snake.body[i].x, snake.body[i].y);
+               }
            }
            ctx.stroke();
-           ctx.restore();
+       }
+       ctx.restore();
 
+       // Body Rendering
+       ctx.lineWidth = width;
+       let shadowBlur = isBoosting ? 40 : 15;
+       if (isPlayer) {
+           const pulse = (Math.sin(Date.now() / 200) + 1) * 0.5; 
+           shadowBlur += pulse * 15;
+       }
+
+       if (isRainbow) {
+           ctx.save();
+           ctx.shadowBlur = shadowBlur;
+           ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+           
+           if (skin === 'pixel') {
+                for (let i = 0; i < snake.body.length; i++) {
+                    const p = snake.body[i];
+                    const hue = (i * 10 - Date.now() / 5) % 360;
+                    ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                    ctx.fillRect(p.x - width/2, p.y - width/2, width, width);
+                }
+           } else {
+                ctx.strokeStyle = '#ffffff';
+                ctx.beginPath();
+                if (snake.body.length > 0) {
+                    ctx.moveTo(snake.body[0].x, snake.body[0].y);
+                    for (let i = 1; i < snake.body.length; i++) {
+                        ctx.lineTo(snake.body[i].x, snake.body[i].y);
+                    }
+                }
+                ctx.stroke();
+                ctx.restore(); 
+
+                for (let i = 0; i < snake.body.length - 1; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(snake.body[i].x, snake.body[i].y);
+                    ctx.lineTo(snake.body[i+1].x, snake.body[i+1].y);
+                    const hue = (i * 10 - Date.now() / 5) % 360;
+                    ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`;
+                    ctx.stroke();
+                }
+           }
+
+       } else if (skin === 'flames') {
+           // --- FLAMES SKIN RENDERING ---
+           ctx.shadowBlur = isBoosting ? 40 : 20;
+           ctx.shadowColor = '#ff4500'; // OrangeRed glow
+
+           // 1. Base Dark Layer
+           ctx.strokeStyle = '#220a0a'; // Dark charred core
+           ctx.lineWidth = width;
+           ctx.beginPath();
+           if (snake.body.length > 0) {
+               ctx.moveTo(snake.body[0].x, snake.body[0].y);
+               for (let i = 1; i < snake.body.length; i++) {
+                   ctx.lineTo(snake.body[i].x, snake.body[i].y);
+               }
+           }
+           ctx.stroke();
+
+           // 2. Pulsating Fire Core
+           const now = Date.now();
            for (let i = 0; i < snake.body.length - 1; i++) {
+              const curr = snake.body[i];
+              const next = snake.body[i+1];
+              
+              // Calculate pulse based on index to create flowing animation
+              // Faster frequency when boosting
+              const freq = isBoosting ? 80 : 150;
+              const pulse = Math.sin((now / freq) - (i * 0.3)) * 0.3 + 0.7;
+              
+              // Fire core width varies with pulse
+              const fireWidth = width * (isBoosting ? 0.8 : 0.5) * pulse;
+              
+              // Color gradient simulation: Yellow/White (hot) -> Orange/Red (cool)
+              // Shift hue slightly over time
+              const hueBase = 15; // Orange-Red
+              const hueVar = Math.sin(now / 200 - i * 0.1) * 15;
+              const hue = hueBase + hueVar; 
+              const lightness = isBoosting ? 70 : 60; // Brighter when boosting
+
+              ctx.strokeStyle = `hsl(${hue}, 100%, ${lightness}%)`;
+              ctx.lineWidth = fireWidth;
+              
               ctx.beginPath();
-              ctx.moveTo(snake.body[i].x, snake.body[i].y);
-              ctx.lineTo(snake.body[i+1].x, snake.body[i+1].y);
-              const hue = (i * 10 - Date.now() / 5) % 360;
-              ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`;
+              ctx.moveTo(curr.x, curr.y);
+              ctx.lineTo(next.x, next.y);
               ctx.stroke();
            }
 
        } else {
-           ctx.shadowBlur = isBoosting ? 40 : 15;
-           ctx.shadowColor = snake.color;
+           // Standard Rendering
+           ctx.shadowBlur = shadowBlur;
+           ctx.shadowColor = skin === 'ghost' ? '#ffffff' : snake.color;
            ctx.strokeStyle = snake.color;
+           ctx.fillStyle = snake.color;
            
-           ctx.beginPath();
-           if (snake.body.length > 0) {
-             ctx.moveTo(snake.body[0].x, snake.body[0].y);
-             for (let i = 1; i < snake.body.length; i++) {
-                 ctx.lineTo(snake.body[i].x, snake.body[i].y);
-             }
+           if (skin === 'ghost') {
+               ctx.lineWidth = width * 0.5;
+               ctx.shadowBlur = 20; 
            }
-           ctx.stroke();
+
+           if (skin === 'pixel') {
+                for (const p of snake.body) {
+                   ctx.fillRect(p.x - width/2, p.y - width/2, width, width);
+                }
+           } else {
+                ctx.beginPath();
+                if (snake.body.length > 0) {
+                    ctx.moveTo(snake.body[0].x, snake.body[0].y);
+                    for (let i = 1; i < snake.body.length; i++) {
+                        ctx.lineTo(snake.body[i].x, snake.body[i].y);
+                    }
+                }
+                ctx.stroke();
+           }
+
+           if (skin === 'ghost') {
+              ctx.save();
+              ctx.globalAlpha = 0.3;
+              ctx.lineWidth = width;
+              ctx.strokeStyle = snake.color;
+              ctx.beginPath();
+              if (snake.body.length > 0) {
+                  ctx.moveTo(snake.body[0].x, snake.body[0].y);
+                  for (let i = 1; i < snake.body.length; i++) {
+                      ctx.lineTo(snake.body[i].x, snake.body[i].y);
+                  }
+              }
+              ctx.stroke();
+              ctx.restore();
+           }
        }
        
-       // Pattern
+       // Pattern logic
        if (snake.pattern && snake.pattern !== 'none') {
           ctx.shadowBlur = 2; 
           ctx.shadowColor = 'rgba(0,0,0,0.5)';
@@ -582,14 +781,48 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               const spotRadius = width * 0.3; 
               for (let i = 2; i < snake.body.length - 1; i += step) {
                  ctx.beginPath();
-                 ctx.arc(snake.body[i].x, snake.body[i].y, spotRadius, 0, Math.PI*2);
+                 if (skin === 'digital' || skin === 'pixel') {
+                     ctx.rect(snake.body[i].x - spotRadius, snake.body[i].y - spotRadius, spotRadius*2, spotRadius*2);
+                 } else {
+                     ctx.arc(snake.body[i].x, snake.body[i].y, spotRadius, 0, Math.PI*2);
+                 }
                  ctx.fill();
               }
+          } else if (snake.pattern === 'waves') {
+              ctx.lineWidth = width * 0.2;
+              ctx.beginPath();
+              for (let i = 1; i < snake.body.length - 1; i++) {
+                  const curr = snake.body[i];
+                  const next = snake.body[i+1];
+                  const angle = Math.atan2(next.y - curr.y, next.x - curr.x);
+                  const perp = angle + Math.PI / 2;
+                  const offset = Math.sin(i * 0.5) * (width * 0.35);
+                  const wx = curr.x + Math.cos(perp) * offset;
+                  const wy = curr.y + Math.sin(perp) * offset;
+                  if (i === 1) ctx.moveTo(wx, wy);
+                  else ctx.lineTo(wx, wy);
+              }
+              ctx.stroke();
+          } else if (snake.pattern === 'camouflage') {
+               const step = 4;
+               for (let i = 2; i < snake.body.length - 1; i += step) {
+                  const rand = Math.sin(i * 123.45); 
+                  const size = width * (0.4 + Math.abs(rand) * 0.3);
+                  ctx.save();
+                  ctx.translate(snake.body[i].x, snake.body[i].y);
+                  ctx.rotate(rand * Math.PI * 2);
+                  ctx.beginPath();
+                  ctx.moveTo(-size/2, -size/2);
+                  ctx.lineTo(size/2, -size/3);
+                  ctx.lineTo(0, size/2);
+                  ctx.fill();
+                  ctx.restore();
+               }
           }
        }
        
        // Head Glow
-       if (snake.id === 'player') {
+       if (isPlayer) {
            const head = snake.body[0];
            ctx.save();
            const glowRadius = isBoosting ? width * 3.5 : width * 2.0;
@@ -599,6 +832,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
            if (isRainbow) {
                grad.addColorStop(0, 'white');
                grad.addColorStop(0.4, `hsl(${-Date.now() / 5 % 360}, 100%, 50%)`);
+               grad.addColorStop(1, 'rgba(0,0,0,0)');
+           } else if (skin === 'flames') {
+               grad.addColorStop(0, '#ffff00');
+               grad.addColorStop(0.4, '#ff4500');
                grad.addColorStop(1, 'rgba(0,0,0,0)');
            } else {
                grad.addColorStop(0, snake.color);
@@ -615,21 +852,296 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
            ctx.restore();
        }
 
-       // Eyes
+       // --- HEAD & FACE DRAWING ---
        const head = snake.body[0];
        ctx.shadowBlur = 0;
        ctx.fillStyle = 'white';
+       ctx.globalAlpha = 1.0;
        
+       const isPixel = (skin === 'digital' || skin === 'pixel');
        const eyeOffset = width * 0.35; 
-       const eyeSize = width * 0.2;
-       
+       const eyeSize = width * 0.35; 
+
        ctx.save();
        ctx.translate(head.x, head.y);
        ctx.rotate(snake.angle);
-       ctx.beginPath();
-       ctx.arc(eyeOffset, -eyeOffset, eyeSize, 0, Math.PI * 2);
-       ctx.arc(eyeOffset, eyeOffset, eyeSize, 0, Math.PI * 2);
-       ctx.fill();
+
+       // 1. Head Shape
+       if (isPixel) {
+           ctx.fillStyle = isRainbow ? '#fff' : snake.color;
+           ctx.fillRect(-width/2, -width/2, width, width);
+           ctx.fillStyle = 'white'; 
+       } else if (skin === 'shard') {
+           ctx.fillStyle = isRainbow ? '#fff' : snake.color;
+           ctx.beginPath();
+           ctx.moveTo(width * 0.8, 0);
+           ctx.lineTo(-width * 0.5, width * 0.6);
+           ctx.lineTo(-width * 0.5, -width * 0.6);
+           ctx.closePath();
+           ctx.fill();
+           ctx.fillStyle = 'white';
+       } else if (skin === 'cobra') {
+            ctx.fillStyle = isRainbow ? '#fff' : snake.color;
+            
+            // Hood Flaring: Expand width when boosting with a slight flutter
+            const boostFlutter = isBoosting ? Math.sin(Date.now() / 50) * 0.1 : 0;
+            const hoodWidthScale = isBoosting ? (1.9 + boostFlutter) : 1.4;
+            const hoodW = width * hoodWidthScale;
+
+            ctx.beginPath();
+            // Main hood
+            ctx.ellipse(-width * 0.2, 0, width * 0.8, hoodW, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Scale Texture (Subtle dots pattern on hood)
+            ctx.fillStyle = 'rgba(0,0,0,0.15)';
+            for(let lx = -width * 0.6; lx < width * 0.2; lx += width * 0.3) {
+                for(let ly = -hoodW * 0.8; ly < hoodW * 0.8; ly += width * 0.3) {
+                     // Simple check to keep texture roughly inside ellipse
+                     if (Math.abs(ly) < hoodW * 0.7) {
+                         ctx.beginPath();
+                         ctx.arc(lx, ly, width * 0.08, 0, Math.PI * 2);
+                         ctx.fill();
+                     }
+                }
+            }
+            
+            // Spectacle mark (V shape) on the hood
+            ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+            ctx.lineWidth = width * 0.15;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            // Adjust markings based on hood width
+            ctx.moveTo(-width * 0.5, -hoodW * 0.5);
+            ctx.bezierCurveTo(-width * 0.2, 0, -width * 0.2, 0, -width * 0.5, hoodW * 0.5);
+            ctx.stroke();
+            
+            ctx.fillStyle = 'white';
+       } else if (skin === 'flames') {
+           // --- Flames Head ---
+           const pulse = (Math.sin(Date.now() / 100) + 1) * 0.5; 
+           ctx.fillStyle = '#ff3300'; // Red-Orange
+           ctx.shadowColor = '#ffff00';
+           ctx.shadowBlur = 20 * pulse;
+           
+           // Draw a more organic fire head shape
+           ctx.beginPath();
+           ctx.arc(0, 0, width * 0.55, 0, Math.PI * 2);
+           ctx.fill();
+
+           // Inner hot spot
+           ctx.fillStyle = '#ffff00';
+           ctx.beginPath();
+           ctx.arc(0, 0, width * 0.3 * (0.8 + pulse * 0.4), 0, Math.PI * 2);
+           ctx.fill();
+           ctx.shadowBlur = 0;
+       }
+
+       // 2. Face Rendering (High Visibility Update)
+       const face = snake.face || 'none';
+       
+       // Common settings
+       ctx.fillStyle = 'white';
+       ctx.strokeStyle = 'rgba(0,0,0,0.7)'; // Dark outline for contrast
+       ctx.lineWidth = 2;
+
+       const drawEyeContainer = (x: number, y: number, radius: number) => {
+            ctx.beginPath();
+            if (isPixel) {
+                ctx.rect(x - radius, y - radius, radius * 2, radius * 2);
+            } else {
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+            }
+            ctx.fill();
+            ctx.stroke();
+       };
+       
+       const drawPupil = (x: number, y: number, radius: number) => {
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            if (isPixel) {
+                ctx.rect(x - radius, y - radius, radius * 2, radius * 2);
+            } else {
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+            }
+            ctx.fill();
+       };
+
+       if (face === 'none') {
+           // Standard Googly Eyes
+           drawEyeContainer(eyeOffset * 0.6, -eyeOffset, eyeSize);
+           drawEyeContainer(eyeOffset * 0.6, eyeOffset, eyeSize);
+           drawPupil(eyeOffset * 0.8, -eyeOffset, eyeSize * 0.4);
+           drawPupil(eyeOffset * 0.8, eyeOffset, eyeSize * 0.4);
+
+       } else if (face === 'happy') {
+           // Closed eyes ^ ^
+           ctx.beginPath();
+           ctx.lineWidth = 3;
+           ctx.strokeStyle = 'white';
+           ctx.shadowColor = 'black';
+           ctx.shadowBlur = 3;
+
+           // Left Arched Eye
+           if (isPixel) {
+               ctx.moveTo(-eyeSize/2, -eyeOffset);
+               ctx.lineTo(eyeSize/2, -eyeOffset - eyeSize);
+               ctx.lineTo(eyeSize*1.5, -eyeOffset);
+           } else {
+               ctx.arc(eyeOffset * 0.6, -eyeOffset, eyeSize, Math.PI, 0);
+           }
+           ctx.stroke();
+           
+           // Right Arched Eye
+           ctx.beginPath();
+           if (isPixel) {
+               ctx.moveTo(-eyeSize/2, eyeOffset);
+               ctx.lineTo(eyeSize/2, eyeOffset + eyeSize);
+               ctx.lineTo(eyeSize*1.5, eyeOffset);
+           } else {
+               ctx.arc(eyeOffset * 0.6, eyeOffset, eyeSize, Math.PI, 0);
+           }
+           ctx.stroke();
+
+           ctx.shadowBlur = 0; // Reset
+
+           // Mouth
+           ctx.fillStyle = 'white';
+           ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+           ctx.lineWidth = 2;
+           ctx.beginPath();
+           if (isPixel) {
+               ctx.rect(0, -eyeSize/2, eyeSize, eyeSize);
+           } else {
+               ctx.arc(width * 0.2, 0, eyeSize * 0.6, 0, Math.PI * 2);
+           }
+           ctx.fill();
+           ctx.stroke();
+
+       } else if (face === 'angry') {
+           // Angled Eyelids
+           
+           // Left Eye
+           ctx.save();
+           ctx.translate(eyeOffset * 0.6, -eyeOffset);
+           ctx.rotate(0.4); 
+           ctx.beginPath();
+           if (isPixel) {
+               ctx.rect(-eyeSize, -eyeSize/2, eyeSize*2, eyeSize);
+           } else {
+               ctx.arc(0, 0, eyeSize, Math.PI, 0);
+           }
+           ctx.fillStyle = 'white';
+           ctx.fill();
+           ctx.stroke();
+           // Pupil
+           drawPupil(0, 0, eyeSize * 0.3);
+           ctx.restore();
+
+           // Right Eye
+           ctx.save();
+           ctx.translate(eyeOffset * 0.6, eyeOffset);
+           ctx.rotate(-0.4); 
+           ctx.beginPath();
+           if (isPixel) {
+               ctx.rect(-eyeSize, -eyeSize/2, eyeSize*2, eyeSize);
+           } else {
+               ctx.arc(0, 0, eyeSize, Math.PI, 0);
+           }
+           ctx.fillStyle = 'white';
+           ctx.fill();
+           ctx.stroke();
+           // Pupil
+           drawPupil(0, 0, eyeSize * 0.3);
+           ctx.restore();
+
+       } else if (face === 'confused') {
+           // Mismatched Eyes + Squiggle Mouth
+           drawEyeContainer(eyeOffset * 0.6, -eyeOffset, eyeSize * 1.3);
+           drawPupil(eyeOffset * 0.6, -eyeOffset, eyeSize * 0.3);
+
+           drawEyeContainer(eyeOffset * 0.6, eyeOffset, eyeSize * 0.6);
+           drawPupil(eyeOffset * 0.6, eyeOffset, eyeSize * 0.2);
+
+           ctx.beginPath();
+           ctx.strokeStyle = 'white';
+           ctx.lineWidth = 3;
+           ctx.shadowColor = 'black';
+           ctx.shadowBlur = 2;
+           ctx.moveTo(0, -width * 0.15);
+           ctx.lineTo(width * 0.2, 0);
+           ctx.lineTo(0, width * 0.15);
+           ctx.stroke();
+           ctx.shadowBlur = 0;
+
+       } else if (face === 'cheeky') {
+           // Wink and Tongue
+           // Left Normal
+           drawEyeContainer(eyeOffset * 0.6, -eyeOffset, eyeSize);
+           drawPupil(eyeOffset * 0.6, -eyeOffset, eyeSize * 0.4);
+
+           // Right Wink
+           ctx.beginPath();
+           ctx.strokeStyle = 'white';
+           ctx.lineWidth = 3;
+           ctx.shadowColor = 'black';
+           ctx.shadowBlur = 2;
+           ctx.moveTo(0, eyeOffset - eyeSize/2);
+           ctx.lineTo(eyeOffset, eyeOffset);
+           ctx.lineTo(0, eyeOffset + eyeSize/2);
+           ctx.stroke();
+           ctx.shadowBlur = 0;
+
+           // Tongue
+           ctx.fillStyle = '#ff4081'; 
+           ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+           ctx.lineWidth = 1;
+           ctx.beginPath();
+           if (isPixel) {
+               ctx.rect(width*0.3, width*0.1, width*0.4, width*0.3);
+           } else {
+               ctx.arc(width * 0.4, width * 0.2, width * 0.18, 0, Math.PI * 2);
+           }
+           ctx.fill();
+           ctx.stroke();
+
+       } else if (face === 'evil') {
+           // Yellow Cat Eyes
+           ctx.fillStyle = '#ffeb3b'; 
+           
+           // Left
+           ctx.beginPath();
+           if (isPixel) {
+               ctx.rect(0, -eyeOffset - eyeSize, eyeSize*2, eyeSize * 1.5);
+           } else {
+               ctx.ellipse(eyeOffset * 0.8, -eyeOffset, eyeSize * 1.2, eyeSize * 0.7, 0.3, 0, Math.PI * 2);
+           }
+           ctx.fill();
+           ctx.stroke();
+           
+           // Right
+           ctx.beginPath();
+           if (isPixel) {
+               ctx.rect(0, eyeOffset - eyeSize * 0.5, eyeSize*2, eyeSize * 1.5);
+           } else {
+               ctx.ellipse(eyeOffset * 0.8, eyeOffset, eyeSize * 1.2, eyeSize * 0.7, -0.3, 0, Math.PI * 2);
+           }
+           ctx.fill();
+           ctx.stroke();
+
+           // Slit Pupils
+           ctx.fillStyle = 'black';
+           ctx.beginPath();
+           if (isPixel) {
+                ctx.rect(eyeOffset, -eyeOffset - eyeSize, width * 0.1, eyeSize * 1.5);
+                ctx.rect(eyeOffset, eyeOffset - eyeSize * 0.5, width * 0.1, eyeSize * 1.5);
+           } else {
+                ctx.ellipse(eyeOffset * 0.8, -eyeOffset, eyeSize * 0.3, eyeSize * 0.6, 0.3, 0, Math.PI * 2);
+                ctx.ellipse(eyeOffset * 0.8, eyeOffset, eyeSize * 0.3, eyeSize * 0.6, -0.3, 0, Math.PI * 2);
+           }
+           ctx.fill();
+       }
+
        ctx.restore();
 
        // Name
@@ -638,7 +1150,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
        ctx.textAlign = 'center';
        ctx.fillText(snake.name, head.x, head.y - width - 5);
 
-       // Crown
        if (snake.id === leaderId) {
            ctx.save();
            const bobOffset = Math.sin(Date.now() / 150) * 5;
@@ -668,12 +1179,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     botsRef.current.forEach(drawSnake);
     if (playerRef.current) drawSnake(playerRef.current);
 
-    // --- Draw Particles ---
+    // Render Particles with improved lifecycle support
     for (let i = particlesRef.current.length - 1; i >= 0; i--) {
        const p = particlesRef.current[i];
-       p.x += p.vx * timeScale; // Velocity scaled by time
+       p.x += p.vx * timeScale; 
        p.y += p.vy * timeScale;
-       p.life -= 0.05 * timeScale; // Decay scaled by time
+       const drag = Math.pow(0.95, timeScale);
+       p.vx *= drag;
+       p.vy *= drag;
+       
+       // Use optional decay if provided, otherwise default
+       p.life -= (p.decay || 0.02) * timeScale;
        
        if (p.life <= 0) {
          particlesRef.current.splice(i, 1);
@@ -684,7 +1200,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
        ctx.fillStyle = p.color;
        ctx.beginPath();
        const baseRadius = p.size || 4;
-       const radius = Math.max(0, baseRadius * p.life); 
+       
+       // Shrink logic: Smoke (shrink=false) stays puffy, debris (shrink=true) shrinks
+       const radius = (p.shrink === false) ? baseRadius : Math.max(0, baseRadius * p.life);
+       
        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
        ctx.fill();
        ctx.globalAlpha = 1;
@@ -692,7 +1211,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     ctx.restore();
 
-    // --- Warning Vignette ---
+    // ... (Vignette and HUD rendering remains unchanged)
     if (playerRef.current && !playerRef.current.isDead) {
         const head = playerRef.current.body[0];
         const margin = 800; 
@@ -723,13 +1242,60 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 ctx.strokeRect(0, 0, canvas.width, canvas.height);
             }
         }
+
+        // --- HUD BOOST BAR & MAP ---
+        const boostVal = playerRef.current.boostValue;
+        const barWidth = 200;
+        const barHeight = 10;
+        const barX = canvas.width - barWidth - 20;
+        const barY = canvas.height - 30; 
+        const isRegenerating = !playerRef.current.isBoosting && boostVal < MAX_BOOST_ENERGY;
+
+        // Background
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath();
+        ctx.roundRect(barX, barY, barWidth, barHeight, 5);
+        ctx.fill();
+        
+        // Fill
+        const fillWidth = (boostVal / MAX_BOOST_ENERGY) * barWidth;
+        const boostColor = boostVal < 20 ? '#ef4444' : '#06b6d4'; 
+        ctx.fillStyle = boostColor;
+        ctx.shadowColor = boostColor;
+        ctx.shadowBlur = isRegenerating ? 15 : 10;
+        ctx.beginPath();
+        ctx.roundRect(barX, barY, Math.max(0, fillWidth), barHeight, 5);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        
+        // Recharging Animation overlay
+        if (isRegenerating) {
+           const pulse = (Math.sin(Date.now() / 150) + 1) * 0.5;
+           ctx.save();
+           ctx.fillStyle = `rgba(255, 255, 255, ${pulse * 0.4})`;
+           ctx.beginPath();
+           ctx.roundRect(barX, barY, Math.max(0, fillWidth), barHeight, 5);
+           ctx.fill();
+           ctx.restore();
+        }
+
+        // Border
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(barX, barY, barWidth, barHeight, 5);
+        ctx.stroke();
+
+        // Icon
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.fillText("BOOST", barX + barWidth / 2, barY - 5);
     }
 
-    // --- Minimap ---
     const mapSize = 130;
     const padding = 20;
     const mapX = canvas.width - mapSize - padding;
-    const mapY = canvas.height - mapSize - padding;
+    const mapY = canvas.height - mapSize - padding - 50;
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.9)'; 
     ctx.fillRect(mapX, mapY, mapSize, mapSize);
@@ -767,66 +1333,64 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
   };
 
+  // ... (Game Loop and Effects remain unchanged)
   const gameLoop = (timestamp: number) => {
-    if (gameState !== GameState.PLAYING) return;
-    if (isPausedRef.current) return;
+      if (gameState !== GameState.PLAYING) return;
+      if (isPausedRef.current) return;
 
-    if (!lastTimeRef.current) {
-        lastTimeRef.current = timestamp;
-    }
-    
-    // Delta Time calculation
-    const deltaTime = timestamp - lastTimeRef.current;
-    lastTimeRef.current = timestamp;
+      if (!lastTimeRef.current) {
+          lastTimeRef.current = timestamp;
+      }
+      
+      const deltaTime = timestamp - lastTimeRef.current;
+      lastTimeRef.current = timestamp;
 
-    // Calculate Time Scale
-    // Standard frame time is 1000ms / 60fps = ~16.67ms
-    // If deltaTime is 16.67, timeScale is 1.0
-    // If deltaTime is 33.33 (30fps), timeScale is 2.0 (move twice as far)
-    const targetFrameTime = 1000 / TARGET_FPS;
-    const speedMultiplier = GAME_SPEEDS[gameSpeed];
-    
-    // Cap timeScale to prevent massive jumps on lag spikes (e.g. max 4 frames catchup)
-    const timeScale = Math.min(4, (deltaTime / targetFrameTime)) * speedMultiplier;
+      const targetFrameTime = 1000 / TARGET_FPS;
+      const speedMultiplier = GAME_SPEEDS[gameSpeed];
+      const timeScale = Math.min(4, (deltaTime / targetFrameTime)) * speedMultiplier;
 
-    // --- Logic ---
-    const now = Date.now();
+      const now = Date.now();
 
-    if (now - lastLeaderboardUpdateRef.current > 500) {
-       const allActive = [...botsRef.current.filter(b => !b.isDead)];
-       if (playerRef.current && !playerRef.current.isDead) {
-          allActive.push(playerRef.current);
-       }
-       allActive.sort((a, b) => b.score - a.score);
-       const topSnakes = allActive.slice(0, 5).map(s => ({
-          id: s.id,
-          name: s.name,
-          score: Math.floor(s.score),
-          color: s.color,
-          isPlayer: s.id === 'player'
-       }));
-       onLeaderboardUpdate(topSnakes);
-       lastLeaderboardUpdateRef.current = now;
-    }
+      if (now - lastLeaderboardUpdateRef.current > 500) {
+        const allActive = [...botsRef.current.filter(b => !b.isDead)];
+        if (playerRef.current && !playerRef.current.isDead) {
+            allActive.push(playerRef.current);
+        }
+        allActive.sort((a, b) => b.score - a.score);
+        const topSnakes = allActive.slice(0, 5).map(s => ({
+            id: s.id,
+            name: s.name,
+            score: Math.floor(s.score),
+            color: s.color,
+            isPlayer: s.id === 'player',
+            killStreak: s.killStreak
+        }));
+        onLeaderboardUpdate(topSnakes);
+        lastLeaderboardUpdateRef.current = now;
+      }
 
-    if (playerRef.current) {
-        const canvas = canvasRef.current;
-        if (canvas) {
-            const rect = canvas.getBoundingClientRect();
-            const centerX = rect.width / 2;
-            const centerY = rect.height / 2;
-            const dx = mouseRef.current.x - centerX;
-            const dy = mouseRef.current.y - centerY;
-            
-            const angle = Math.atan2(dy, dx);
-            const targetX = playerRef.current.body[0].x + Math.cos(angle) * 200;
-            const targetY = playerRef.current.body[0].y + Math.sin(angle) * 200;
-            
-            playerRef.current.isBoosting = isMouseBoostRef.current || isKeyBoostRef.current || isTouchBoostingRef.current;
-            updateSnake(playerRef.current, targetX, targetY, timeScale);
-
-            // --- Particles ---
-            if (!playerRef.current.isDead) {
+      if (playerRef.current) {
+          const canvas = canvasRef.current;
+          if (canvas) {
+              const rect = canvas.getBoundingClientRect();
+              const centerX = rect.width / 2;
+              const centerY = rect.height / 2;
+              const dx = mouseRef.current.x - centerX;
+              const dy = mouseRef.current.y - centerY;
+              
+              const angle = Math.atan2(dy, dx);
+              const targetX = playerRef.current.body[0].x + Math.cos(angle) * 200;
+              const targetY = playerRef.current.body[0].y + Math.sin(angle) * 200;
+              
+              updateSnake(
+                  playerRef.current, 
+                  targetX, targetY, timeScale, 
+                  isMouseBoostRef.current, 
+                  isKeyBoostRef.current
+              );
+              
+              // ... (Particle effects logic)
+              if (!playerRef.current.isDead) {
                 const snake = playerRef.current;
                 const head = snake.body[0];
                 const tail = snake.body[snake.body.length - 1];
@@ -835,7 +1399,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 const isBoosting = snake.isBoosting;
                 const isRainbow = snake.color === 'rainbow';
 
-                // Probabilities are scaled by timeScale so particle density stays consistent per second
+                // Ambient Sparkles around player
+                if (Math.random() < 0.05 * timeScale) {
+                     createSparkles(
+                        head.x + (Math.random() - 0.5) * width * 2,
+                        head.y + (Math.random() - 0.5) * width * 2,
+                        1
+                     );
+                }
+
                 if (isBoosting || Math.random() < 0.3 * timeScale) {
                      const spread = width * 0.5;
                      const pColor = isRainbow ? `hsl(${Math.random()*360}, 100%, 80%)` : (isBoosting ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.15)');
@@ -848,45 +1420,40 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                         vy: -Math.sin(angle) * (Math.random() * 4 + 2),
                         life: 0.25, 
                         color: pColor,
-                        size: isBoosting ? 2.5 : 1.5
+                        size: isBoosting ? 2.5 : 1.5,
+                        decay: 0.08,
+                        shrink: true
                      });
                 }
-
-                // Tail Trail
-                // Adjust loop count by timeScale for consistency, or simply allow fewer updates
                 const trailCount = Math.round((isBoosting ? 3 : 1) * timeScale);
-                
                 for(let i=0; i<trailCount; i++) {
                    let tColor = snake.color;
                    if (isRainbow) {
                        const hue = (snake.body.length * 10 - Date.now() / 5) % 360;
                        tColor = `hsl(${hue}, 100%, 50%)`;
                    }
-
                    particlesRef.current.push({
                       id: `tail-p-${Math.random()}`,
                       x: tail.x + (Math.random() - 0.5) * width * 0.5,
                       y: tail.y + (Math.random() - 0.5) * width * 0.5,
-                      vx: 0, 
-                      vy: 0,
+                      vx: 0, vy: 0,
                       life: isBoosting ? 0.6 : 0.3,
                       color: (isBoosting && Math.random() > 0.7) ? '#ffffff' : tColor,
-                      size: isBoosting ? 4 : 3
+                      size: isBoosting ? 4 : 3,
+                      decay: 0.04,
+                      shrink: true
                    });
                 }
-
                 if (isBoosting) {
                    const ghostDist = width * 0.8;
                    const ghostX = tail.x - Math.cos(angle) * ghostDist;
                    const ghostY = tail.y - Math.sin(angle) * ghostDist;
-                   
                    if(Math.random() < 0.5 * timeScale) {
                        let gColor = snake.color;
                        if (isRainbow) {
                            const hue = (snake.body.length * 10 - Date.now() / 5) % 360;
                            gColor = `hsl(${hue}, 100%, 50%)`;
                        }
-                       
                        particlesRef.current.push({
                           id: `ghost-${Math.random()}`,
                           x: ghostX + (Math.random() - 0.5) * width,
@@ -895,70 +1462,68 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                           vy: (Math.random() - 0.5),
                           life: 0.4,
                           color: gColor,
-                          size: width * 0.4
+                          size: width * 0.4,
+                          decay: 0.03,
+                          shrink: false
                        });
                    }
                 }
-            }
-            
-            if (playerRef.current.isDead) {
-                onGameOver(Math.floor(playerRef.current.score));
-                return;
-            }
-            
-            onScoreUpdate(Math.floor(playerRef.current.score));
-        }
-    }
+              }
 
-    updateBots(timeScale);
-    
-    const allSnakes = [...botsRef.current];
-    if (playerRef.current) allSnakes.push(playerRef.current);
-    
-    if (playerRef.current) checkCollisions(playerRef.current, allSnakes);
-    botsRef.current.forEach(bot => checkCollisions(bot, allSnakes));
-    
-    botsRef.current = botsRef.current.filter(b => !b.isDead);
-    
-    if (botsRef.current.length < BOT_COUNT) {
-         const { x, y } = getSafeSpawnPosition();
-         botsRef.current.push(createSnake(
-            `bot-${Date.now()}`, 
-            `Bot ${Math.floor(Math.random()*1000)}`, 
-            true, 
-            x, 
-            y
-         ));
-    }
+              if (playerRef.current.isDead) {
+                  onGameOver(Math.floor(playerRef.current.score));
+                  return;
+              }
+              
+              onScoreUpdate(Math.floor(playerRef.current.score));
+          }
+      }
 
-    render(timeScale);
-    animationFrameRef.current = requestAnimationFrame(gameLoop);
+      updateBots(timeScale);
+      
+      const allSnakes = [...botsRef.current];
+      if (playerRef.current) allSnakes.push(playerRef.current);
+      
+      if (playerRef.current) checkCollisions(playerRef.current, allSnakes);
+      botsRef.current.forEach(bot => checkCollisions(bot, allSnakes));
+      
+      botsRef.current = botsRef.current.filter(b => !b.isDead);
+      
+      if (botsRef.current.length < BOT_COUNT) {
+          const { x, y } = getSafeSpawnPosition();
+          const newBot = createSnake(
+              `bot-${Date.now()}`, 
+              `Bot ${Math.floor(Math.random()*1000)}`, 
+              true, 
+              x, 
+              y
+          );
+          botsRef.current.push(newBot);
+          createExplosion(x, y, '#ffffff');
+      }
+
+      render(timeScale);
+      animationFrameRef.current = requestAnimationFrame(gameLoop);
   };
-
-  // --- Effects ---
 
   useEffect(() => {
     if (gameState === GameState.PLAYING) {
       initGame();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState]);
 
   useEffect(() => {
     isPausedRef.current = isPaused;
-    
     if (gameState === GameState.PLAYING && !isPaused) {
         if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-        lastTimeRef.current = 0; // Reset time tracking on resume
+        lastTimeRef.current = 0; 
         animationFrameRef.current = requestAnimationFrame(gameLoop);
     } else {
         if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     }
-    
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState, isPaused]);
 
   useEffect(() => {
@@ -1000,11 +1565,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const handleTouch = (e: TouchEvent) => {
         if (e.cancelable) e.preventDefault();
-
         if (e.targetTouches.length > 0) {
             mouseRef.current = { x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY };
         }
-
         if (e.touches.length > 1) {
             isMouseBoostRef.current = true;
         } else {

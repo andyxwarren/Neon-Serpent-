@@ -4,8 +4,10 @@ export interface Point {
   y: number;
 }
 
-export type SnakePattern = 'none' | 'stripes' | 'spots';
+export type SnakePattern = 'none' | 'stripes' | 'spots' | 'waves' | 'camouflage';
 export type GameSpeedMode = 'SLOW' | 'NORMAL' | 'FAST';
+export type SnakeSkin = 'standard' | 'digital' | 'shard' | 'ghost' | 'pixel' | 'cobra' | 'flames';
+export type SnakeFace = 'none' | 'happy' | 'angry' | 'confused' | 'cheeky' | 'evil';
 
 export interface Snake {
   id: string;
@@ -16,11 +18,14 @@ export interface Snake {
   speed: number;
   color: string;
   pattern: SnakePattern;
+  skin: SnakeSkin;
+  face: SnakeFace;
   isBoosting: boolean;
+  boostValue: number; // 0 to 100
   isDead: boolean;
   score: number;
   isBot: boolean;
-  skin?: string; // Could be used for advanced rendering later
+  killStreak: number;
 }
 
 export interface Food {
@@ -43,6 +48,8 @@ export interface Particle {
   life: number;
   color: string;
   size?: number;
+  decay?: number;
+  shrink?: boolean;
 }
 
 export enum GameState {
@@ -63,4 +70,14 @@ export interface LeaderboardEntry {
   score: number;
   color: string;
   isPlayer: boolean;
+  killStreak: number;
+}
+
+export interface PlayerPreferences {
+  name: string;
+  color: string;
+  pattern: SnakePattern;
+  skin: SnakeSkin;
+  face: SnakeFace;
+  speed: GameSpeedMode;
 }

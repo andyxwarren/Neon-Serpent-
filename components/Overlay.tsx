@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { GameState, LeaderboardEntry } from '../types';
-import { Trophy, Activity, Zap, Crown, PauseCircle, PlayCircle, Pause } from 'lucide-react';
+import { Trophy, Activity, Zap, Crown, PauseCircle, PlayCircle, Pause, Flame } from 'lucide-react';
 
 interface OverlayProps {
   gameState: GameState;
@@ -10,8 +10,6 @@ interface OverlayProps {
   leaderboard: LeaderboardEntry[];
   isPaused: boolean;
   onTogglePause: () => void;
-  setIsTouchBoosting: (boosting: boolean) => void;
-  isTouchBoosting: boolean;
 }
 
 const Overlay: React.FC<OverlayProps> = ({ 
@@ -20,9 +18,7 @@ const Overlay: React.FC<OverlayProps> = ({
   commentary, 
   leaderboard, 
   isPaused, 
-  onTogglePause,
-  setIsTouchBoosting,
-  isTouchBoosting
+  onTogglePause
 }) => {
   if (gameState !== GameState.PLAYING) return null;
 
@@ -64,7 +60,13 @@ const Overlay: React.FC<OverlayProps> = ({
                                 <div className="flex items-center gap-2 overflow-hidden">
                                     <span className="w-3 text-slate-500">{index + 1}.</span>
                                     <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }}></span>
-                                    <span className="truncate max-w-[80px]">{entry.name}</span>
+                                    <span className="truncate max-w-[60px]">{entry.name}</span>
+                                    {entry.killStreak >= 3 && (
+                                        <div className="flex items-center text-orange-500 ml-1" title="Killstreak">
+                                            <Flame className="w-3 h-3 fill-orange-500 animate-pulse" />
+                                            <span className="text-[10px] font-bold ml-0.5">{entry.killStreak}</span>
+                                        </div>
+                                    )}
                                 </div>
                                 <span className="font-mono">{entry.score}</span>
                             </div>
@@ -88,29 +90,16 @@ const Overlay: React.FC<OverlayProps> = ({
 
         {/* Bottom Bar */}
         <div className="flex justify-between items-end relative">
-            <div className="bg-gray-900/80 backdrop-blur border border-white/10 p-3 rounded-lg text-white/70 text-xs">
+            <div className="bg-gray-900/80 backdrop-blur border border-white/10 p-3 rounded-lg text-white/70 text-xs mb-2">
             <div className="flex items-center gap-2 mb-1">
                 <div className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center text-[10px]">M</div>
                 <span>Move Mouse / Touch to Steer</span>
             </div>
             <div className="flex items-center gap-2">
                 <div className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center text-[10px]"><Zap className="w-2 h-2" /></div>
-                <span>Click / Space / Tap to Boost</span>
+                <span>Click / Space / 2 Fingers to Boost</span>
             </div>
             </div>
-
-            {/* Mobile Boost Button (Visible on bottom right, mainly for touch) */}
-            <button
-                className={`pointer-events-auto absolute bottom-0 right-0 w-24 h-24 mb-4 mr-4 rounded-full bg-cyan-500/20 backdrop-blur-sm border-2 border-cyan-400/50 flex flex-col items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all active:scale-95 active:bg-cyan-400/40 active:shadow-[0_0_40px_rgba(6,182,212,0.6)] ${isTouchBoosting ? 'scale-95 bg-cyan-400/40 shadow-[0_0_40px_rgba(6,182,212,0.6)]' : 'hover:scale-105'}`}
-                onTouchStart={(e) => { e.preventDefault(); setIsTouchBoosting(true); }}
-                onTouchEnd={(e) => { e.preventDefault(); setIsTouchBoosting(false); }}
-                onMouseDown={() => setIsTouchBoosting(true)}
-                onMouseUp={() => setIsTouchBoosting(false)}
-                onMouseLeave={() => setIsTouchBoosting(false)}
-            >
-                <Zap className={`w-8 h-8 mb-1 ${isTouchBoosting ? 'text-white fill-white' : 'text-cyan-400'}`} />
-                <span className="text-[10px] font-bold uppercase tracking-widest">Boost</span>
-            </button>
         </div>
         </div>
 

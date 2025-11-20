@@ -2,12 +2,29 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>NeonSerpent.io</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      body { margin: 0; overflow: hidden; background-color: #0f172a; }
+      body { 
+        margin: 0; 
+        overflow: hidden; 
+        background-color: #0f172a; 
+        touch-action: none; /* Disables touch gestures like pan/zoom */
+        overscroll-behavior: none; /* Prevents pull-to-refresh/bounce */
+      }
       canvas { display: block; }
+      
+      /* Prevent text selection globally to feel more like a native app */
+      * {
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      /* Allow selection in inputs */
+      input, textarea {
+        user-select: text;
+        -webkit-user-select: text;
+      }
     </style>
   <script type="importmap">
 {
