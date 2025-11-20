@@ -4,7 +4,6 @@ import GameCanvas from './components/GameCanvas';
 import Overlay from './components/Overlay';
 import StartScreen from './components/StartScreen';
 import { GameState, LeaderboardEntry, SnakePattern, GameSpeedMode, SnakeSkin, SnakeFace, PlayerPreferences } from './types';
-import { generateCommentary } from './services/geminiService';
 import { SNAKE_COLORS } from './constants';
 
 const App: React.FC = () => {
@@ -17,7 +16,6 @@ const App: React.FC = () => {
   const [gameSpeed, setGameSpeed] = useState<GameSpeedMode>('NORMAL');
   const [score, setScore] = useState(0);
   const [lastScore, setLastScore] = useState<number | undefined>(undefined);
-  const [aiCommentary, setAiCommentary] = useState('');
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [isPaused, setIsPaused] = useState(false);
   const [initialPrefs, setInitialPrefs] = useState<PlayerPreferences | undefined>(undefined);
@@ -52,28 +50,17 @@ const App: React.FC = () => {
     } catch (e) {
       console.error('Failed to save preferences', e);
     }
-    
-    // Welcome message
-    const comment = await generateCommentary('start', name, 0);
-    if (comment) setAiCommentary(comment);
   };
 
   const handleGameOver = async (finalScore: number) => {
     setGameState(GameState.GAME_OVER);
     setLastScore(finalScore);
     setIsPaused(false);
-    
-    const comment = await generateCommentary('die', playerName, finalScore);
-    if (comment) setAiCommentary(comment);
   };
 
-  const handleKill = useCallback(async () => {
-      // 20% chance to comment on a kill to avoid spamming API
-      if (Math.random() < 0.2) {
-          const comment = await generateCommentary('kill', playerName, score);
-          if (comment) setAiCommentary(comment);
-      }
-  }, [playerName, score]);
+  const handleKill = useCallback(() => {
+      // Logic for kill events can be added here if needed (e.g. sound effects)
+  }, []);
 
   const togglePause = useCallback(() => {
     if (gameState === GameState.PLAYING) {
@@ -113,7 +100,6 @@ const App: React.FC = () => {
       <Overlay 
         gameState={gameState}
         score={score}
-        commentary={aiCommentary}
         leaderboard={leaderboard}
         isPaused={isPaused}
         onTogglePause={togglePause}
@@ -123,7 +109,6 @@ const App: React.FC = () => {
         <StartScreen 
           onStart={startGame} 
           lastScore={lastScore}
-          commentary={gameState === GameState.GAME_OVER ? aiCommentary : undefined}
           initialValues={initialPrefs}
         />
       )}

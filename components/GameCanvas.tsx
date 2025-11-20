@@ -461,6 +461,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
+    const isSmallScreen = canvas.width < 640; // Simple mobile check
+
     if (playerRef.current && !playerRef.current.isDead) {
       const head = playerRef.current.body[0];
       const lerp = 1 - Math.pow(0.9, timeScale); 
@@ -1244,10 +1246,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         }
 
         // --- HUD BOOST BAR & MAP ---
+        // Dynamic Sizing based on screen width
+        const isSmallScreen = canvas.width < 640;
+        
         const boostVal = playerRef.current.boostValue;
-        const barWidth = 200;
-        const barHeight = 10;
-        const barX = canvas.width - barWidth - 20;
+        const barWidth = isSmallScreen ? 120 : 200;
+        const barHeight = isSmallScreen ? 8 : 10;
+        const barPadding = isSmallScreen ? 10 : 20;
+        const barX = canvas.width - barWidth - barPadding;
         const barY = canvas.height - 30; 
         const isRegenerating = !playerRef.current.isBoosting && boostVal < MAX_BOOST_ENERGY;
 
@@ -1288,52 +1294,58 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
         // Icon
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 10px sans-serif';
+        ctx.font = `bold ${isSmallScreen ? '8px' : '10px'} sans-serif`;
+        ctx.textAlign = 'center';
         ctx.fillText("BOOST", barX + barWidth / 2, barY - 5);
-    }
 
-    const mapSize = 130;
-    const padding = 20;
-    const mapX = canvas.width - mapSize - padding;
-    const mapY = canvas.height - mapSize - padding - 50;
+        // --- MINI MAP ---
+        const mapSize = isSmallScreen ? 90 : 130;
+        const mapPadding = isSmallScreen ? 10 : 20;
+        // Place map above boost bar to avoid overlap, or simple bottom-right stacking
+        // Let's align it to bottom right but higher up
+        const mapX = canvas.width - mapSize - mapPadding;
+        // Ensure map clears the boost bar area (barY is at canvas.height - 30)
+        // We want map bottom to be around barY - 20
+        const mapY = barY - mapSize - 20;
 
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)'; 
-    ctx.fillRect(mapX, mapY, mapSize, mapSize);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)'; 
-    ctx.strokeRect(mapX, mapY, mapSize, mapSize);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)'; 
+        ctx.fillRect(mapX, mapY, mapSize, mapSize);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)'; 
+        ctx.strokeRect(mapX, mapY, mapSize, mapSize);
 
-    const drawMinimapDot = (x: number, y: number, color: string, radius: number) => {
-      const rx = x / WORLD_SIZE;
-      const ry = y / WORLD_SIZE;
-      const mx = mapX + rx * mapSize;
-      const my = mapY + ry * mapSize;
-      if (mx < mapX || mx > mapX + mapSize || my < mapY || my > mapY + mapSize) return;
-      ctx.beginPath();
-      ctx.arc(mx, my, radius, 0, Math.PI * 2);
-      ctx.fillStyle = color === 'rainbow' ? '#ffffff' : color;
-      ctx.fill();
-    };
+        const drawMinimapDot = (x: number, y: number, color: string, radius: number) => {
+            const rx = x / WORLD_SIZE;
+            const ry = y / WORLD_SIZE;
+            const mx = mapX + rx * mapSize;
+            const my = mapY + ry * mapSize;
+            if (mx < mapX || mx > mapX + mapSize || my < mapY || my > mapY + mapSize) return;
+            ctx.beginPath();
+            ctx.arc(mx, my, radius, 0, Math.PI * 2);
+            ctx.fillStyle = color === 'rainbow' ? '#ffffff' : color;
+            ctx.fill();
+        };
 
-    botsRef.current.forEach(bot => {
-      if (!bot.isDead) {
-        drawMinimapDot(bot.body[0].x, bot.body[0].y, bot.color, 2.5);
-      }
-    });
+        botsRef.current.forEach(bot => {
+            if (!bot.isDead) {
+                drawMinimapDot(bot.body[0].x, bot.body[0].y, bot.color, isSmallScreen ? 2 : 2.5);
+            }
+        });
 
-    if (playerRef.current && !playerRef.current.isDead) {
-      drawMinimapDot(playerRef.current.body[0].x, playerRef.current.body[0].y, '#ffffff', 4);
-      const px = mapX + (playerRef.current.body[0].x / WORLD_SIZE) * mapSize;
-      const py = mapY + (playerRef.current.body[0].y / WORLD_SIZE) * mapSize;
-      ctx.beginPath();
-      ctx.arc(px, py, 6, 0, Math.PI * 2);
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-      ctx.stroke();
+        if (playerRef.current && !playerRef.current.isDead) {
+            drawMinimapDot(playerRef.current.body[0].x, playerRef.current.body[0].y, '#ffffff', isSmallScreen ? 3 : 4);
+            const px = mapX + (playerRef.current.body[0].x / WORLD_SIZE) * mapSize;
+            const py = mapY + (playerRef.current.body[0].y / WORLD_SIZE) * mapSize;
+            ctx.beginPath();
+            ctx.arc(px, py, isSmallScreen ? 5 : 6, 0, Math.PI * 2);
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.stroke();
+        }
     }
   };
 
-  // ... (Game Loop and Effects remain unchanged)
+  // ... (Rest of the file remains unchanged)
   const gameLoop = (timestamp: number) => {
       if (gameState !== GameState.PLAYING) return;
       if (isPausedRef.current) return;

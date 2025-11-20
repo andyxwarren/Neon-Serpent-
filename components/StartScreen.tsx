@@ -7,7 +7,6 @@ import { SnakePattern, GameSpeedMode, SnakeSkin, SnakeFace, PlayerPreferences } 
 interface StartScreenProps {
   onStart: (name: string, color: string, pattern: SnakePattern, skin: SnakeSkin, face: SnakeFace, speed: GameSpeedMode) => void;
   lastScore?: number;
-  commentary?: string;
   initialValues?: PlayerPreferences;
 }
 
@@ -18,16 +17,25 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    
+    // Handle DPI/Resolution
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    
+    ctx.scale(dpr, dpr);
 
     let animationFrameId: number;
     const startTime = Date.now();
 
     const render = () => {
       const time = Date.now() - startTime;
-      const width = canvas.width;
-      const height = canvas.height;
+      // Use logic coords (CSS pixels)
+      const width = rect.width;
+      const height = rect.height;
 
       ctx.clearRect(0, 0, width, height);
 
@@ -35,15 +43,13 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
       ctx.strokeStyle = 'rgba(255,255,255,0.05)';
       ctx.lineWidth = 1;
       const gridSize = 30;
-      const scrollX = (time * 0.05) % gridSize; // Scroll speed
+      const scrollX = (time * 0.05) % gridSize; 
       
       ctx.beginPath();
-      // Vertical lines moving left
       for(let x = -scrollX; x < width; x+=gridSize) { 
           ctx.moveTo(x,0); 
           ctx.lineTo(x,height); 
       }
-      // Horizontal lines
       for(let y=0; y<height; y+=gridSize) { 
           ctx.moveTo(0,y); 
           ctx.lineTo(width,y); 
@@ -100,13 +106,11 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
                }
           }
       } else if (skin === 'flames') {
-          // Special Flames Rendering
           ctx.shadowBlur = 15;
-          ctx.shadowColor = '#ff4500'; // OrangeRed shadow
+          ctx.shadowColor = '#ff4500'; 
           
-          // Draw Dark Base
           ctx.lineWidth = snakeWidth;
-          ctx.strokeStyle = '#220a0a'; // Dark char
+          ctx.strokeStyle = '#220a0a'; 
           ctx.beginPath();
           if (bodySegments.length > 0) {
               ctx.moveTo(bodySegments[0].x, bodySegments[0].y);
@@ -114,17 +118,14 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
           }
           ctx.stroke();
 
-          // Draw Fiery Core
           for (let i = 0; i < bodySegments.length - 1; i++) {
               const curr = bodySegments[i];
               const next = bodySegments[i+1];
               
-              // Animate pulse
               const pulse = Math.sin((time / 150) - (i * 0.5)) * 0.3 + 0.7;
               const fireWidth = snakeWidth * 0.6 * pulse;
               
-              // Fire Gradient logic simulation (simplified for preview)
-              const hue = 20 + Math.sin(time / 200 - i * 0.2) * 20; // Orange to Yellow
+              const hue = 20 + Math.sin(time / 200 - i * 0.2) * 20; 
               ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
               ctx.lineWidth = fireWidth;
               
@@ -243,18 +244,14 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
           ctx.fillStyle = 'white';
       } else if (skin === 'cobra') {
           ctx.fillStyle = isRainbow ? '#fff' : color;
-          
-          // Simulate a slight breath/pulse for the preview
           const breath = Math.sin(time / 300) * 0.05;
           const hoodWidthScale = 1.4 + breath;
           const hoodW = snakeWidth * hoodWidthScale;
           
           ctx.beginPath();
-          // Main hood
           ctx.ellipse(-snakeWidth * 0.2, 0, snakeWidth * 0.8, hoodW, 0, 0, Math.PI * 2);
           ctx.fill();
           
-          // Scale Texture
           ctx.fillStyle = 'rgba(0,0,0,0.15)';
           for(let lx = -snakeWidth * 0.6; lx < snakeWidth * 0.2; lx += snakeWidth * 0.3) {
               for(let ly = -hoodW * 0.8; ly < hoodW * 0.8; ly += snakeWidth * 0.3) {
@@ -266,7 +263,6 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
               }
           }
 
-          // Spectacle mark
           ctx.strokeStyle = 'rgba(0,0,0,0.4)';
           ctx.lineWidth = snakeWidth * 0.15;
           ctx.lineCap = 'round';
@@ -277,18 +273,15 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
           
           ctx.fillStyle = 'white';
       } else if (skin === 'flames') {
-         // Draw head for flames skin
          const pulse = Math.sin(time / 150) * 0.2 + 1.0;
          ctx.fillStyle = '#ff3300';
          ctx.shadowColor = '#ffaa00';
          ctx.shadowBlur = 15 * pulse;
          
-         // Fiery head shape
          ctx.beginPath();
          ctx.arc(0, 0, snakeWidth * 0.55, 0, Math.PI * 2);
          ctx.fill();
          
-         // Inner hot core
          ctx.fillStyle = '#ffff00';
          ctx.beginPath();
          ctx.arc(0, 0, snakeWidth * 0.3 * pulse, 0, Math.PI * 2);
@@ -296,11 +289,9 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
          ctx.shadowBlur = 0;
       }
 
-      // --- FACE RENDERER (Sync with GameCanvas) ---
        const eyeOffset = snakeWidth * 0.35; 
        const eyeSize = snakeWidth * 0.35; 
 
-       // Common settings
        ctx.fillStyle = 'white';
        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
        ctx.lineWidth = 2;
@@ -328,21 +319,18 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
        };
 
        if (face === 'none') {
-           // Standard Googly Eyes
            drawEyeContainer(eyeOffset * 0.6, -eyeOffset, eyeSize);
            drawEyeContainer(eyeOffset * 0.6, eyeOffset, eyeSize);
            drawPupil(eyeOffset * 0.8, -eyeOffset, eyeSize * 0.4);
            drawPupil(eyeOffset * 0.8, eyeOffset, eyeSize * 0.4);
 
        } else if (face === 'happy') {
-           // Closed eyes ^ ^
            ctx.beginPath();
            ctx.lineWidth = 3;
            ctx.strokeStyle = 'white';
            ctx.shadowColor = 'black';
            ctx.shadowBlur = 3;
 
-           // Left Arched Eye
            if (isPixel) {
                ctx.moveTo(-eyeSize/2, -eyeOffset);
                ctx.lineTo(eyeSize/2, -eyeOffset - eyeSize);
@@ -352,7 +340,6 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
            }
            ctx.stroke();
            
-           // Right Arched Eye
            ctx.beginPath();
            if (isPixel) {
                ctx.moveTo(-eyeSize/2, eyeOffset);
@@ -363,9 +350,8 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
            }
            ctx.stroke();
 
-           ctx.shadowBlur = 0; // Reset
+           ctx.shadowBlur = 0; 
 
-           // Mouth
            ctx.fillStyle = 'white';
            ctx.strokeStyle = 'rgba(0,0,0,0.7)';
            ctx.lineWidth = 2;
@@ -379,7 +365,6 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
            ctx.stroke();
 
        } else if (face === 'angry') {
-           // Left Eye
            ctx.save();
            ctx.translate(eyeOffset * 0.6, -eyeOffset);
            ctx.rotate(0.4); 
@@ -395,7 +380,6 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
            drawPupil(0, 0, eyeSize * 0.3);
            ctx.restore();
 
-           // Right Eye
            ctx.save();
            ctx.translate(eyeOffset * 0.6, eyeOffset);
            ctx.rotate(-0.4); 
@@ -459,7 +443,6 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
        } else if (face === 'evil') {
            ctx.fillStyle = '#ffeb3b'; 
            
-           // Left
            ctx.beginPath();
            if (isPixel) {
                ctx.rect(0, -eyeOffset - eyeSize, eyeSize*2, eyeSize * 1.5);
@@ -469,7 +452,6 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
            ctx.fill();
            ctx.stroke();
            
-           // Right
            ctx.beginPath();
            if (isPixel) {
                ctx.rect(0, eyeOffset - eyeSize * 0.5, eyeSize*2, eyeSize * 1.5);
@@ -479,7 +461,6 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
            ctx.fill();
            ctx.stroke();
 
-           // Slit Pupils
            ctx.fillStyle = 'black';
            ctx.beginPath();
            if (isPixel) {
@@ -497,81 +478,88 @@ const SnakePreview: React.FC<{ color: string; skin: SnakeSkin; pattern: SnakePat
       animationFrameId = requestAnimationFrame(render);
     };
 
+    // Add resize listener for canvas
+    const handleResize = () => {
+       const dpr = window.devicePixelRatio || 1;
+       const rect = canvas.getBoundingClientRect();
+       canvas.width = rect.width * dpr;
+       canvas.height = rect.height * dpr;
+       ctx.scale(dpr, dpr);
+    };
+    window.addEventListener('resize', handleResize);
+
     render();
-    return () => cancelAnimationFrame(animationFrameId);
+    return () => {
+        cancelAnimationFrame(animationFrameId);
+        window.removeEventListener('resize', handleResize);
+    };
   }, [color, skin, pattern, face]);
 
   return (
-    <div className="w-full h-40 md:h-full bg-slate-900 rounded-xl border border-white/10 relative overflow-hidden flex items-center justify-center group">
-        <canvas ref={canvasRef} width={300} height={200} className="z-10" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-cyan-900/20 to-slate-900 z-0 transition-opacity duration-500 group-hover:opacity-80"></div>
+    <div className="absolute inset-0 flex items-center justify-center">
+       <canvas ref={canvasRef} className="w-full h-full object-contain" />
+       <div className="absolute bottom-4 left-0 w-full text-center pointer-events-none">
+            <span className="px-3 py-1 bg-black/50 rounded-full text-[10px] text-cyan-300 uppercase tracking-wider border border-cyan-500/30 shadow-lg backdrop-blur-sm">
+                {skin} • {face}
+            </span>
+       </div>
     </div>
   );
 };
 
-// --- Main Start Screen ---
-const StartScreen: React.FC<StartScreenProps> = ({ onStart, lastScore, commentary, initialValues }) => {
-  const [name, setName] = useState('NeonSurfer');
-  const [selectedColor, setSelectedColor] = useState(SNAKE_COLORS[0]);
-  const [customColor, setCustomColor] = useState('#ffffff');
-  const [selectedPattern, setSelectedPattern] = useState<SnakePattern>('none');
-  const [selectedSkin, setSelectedSkin] = useState<SnakeSkin>('standard');
-  const [selectedFace, setSelectedFace] = useState<SnakeFace>('none');
-  const [selectedSpeed, setSelectedSpeed] = useState<GameSpeedMode>('NORMAL');
+const StartScreen: React.FC<StartScreenProps> = ({ onStart, lastScore, initialValues }) => {
+    const [name, setName] = useState('NeonSurfer');
+    const [selectedColor, setSelectedColor] = useState(SNAKE_COLORS[0]);
+    const [customColor, setCustomColor] = useState('#ffffff');
+    const [selectedPattern, setSelectedPattern] = useState<SnakePattern>('none');
+    const [selectedSkin, setSelectedSkin] = useState<SnakeSkin>('standard');
+    const [selectedFace, setSelectedFace] = useState<SnakeFace>('none');
+    const [selectedSpeed, setSelectedSpeed] = useState<GameSpeedMode>('NORMAL');
+    const [activeTab, setActiveTab] = useState<'skin' | 'face' | 'pattern' | 'color'>('skin');
+    const isCustomSelected = !SNAKE_COLORS.includes(selectedColor);
+
+    useEffect(() => {
+        if (initialValues) {
+            setName(initialValues.name || 'NeonSurfer');
+            if (initialValues.color) {
+                if (SNAKE_COLORS.includes(initialValues.color)) {
+                    setSelectedColor(initialValues.color);
+                } else if (initialValues.color.startsWith('#')) {
+                    setSelectedColor(initialValues.color);
+                    setCustomColor(initialValues.color);
+                }
+            }
+            if (initialValues.pattern) setSelectedPattern(initialValues.pattern);
+            if (initialValues.skin) setSelectedSkin(initialValues.skin);
+            if (initialValues.face) setSelectedFace(initialValues.face);
+            if (initialValues.speed) setSelectedSpeed(initialValues.speed);
+        }
+    }, [initialValues]);
+
+    const renderSkinIcon = (skin: SnakeSkin) => {
+        switch (skin) {
+            case 'digital': return <Square className="w-8 h-8 mb-1 opacity-80" />;
+            case 'shard': return <Triangle className="w-8 h-8 mb-1 opacity-80" />;
+            case 'ghost': return <Ghost className="w-8 h-8 mb-1 opacity-80" />;
+            case 'pixel': return <Grid3x3 className="w-8 h-8 mb-1 opacity-80" />;
+            case 'cobra': return <Shield className="w-8 h-8 mb-1 opacity-80" />;
+            case 'flames': return <Flame className="w-8 h-8 mb-1 opacity-80 text-orange-500" />;
+            default: return <Circle className="w-8 h-8 mb-1 opacity-80" />;
+        }
+    };
   
-  // UI State
-  const [activeTab, setActiveTab] = useState<'skin' | 'face' | 'pattern' | 'color'>('skin');
+    const renderFaceIcon = (face: SnakeFace) => {
+        switch (face) {
+            case 'happy': return <Smile className="w-8 h-8 mb-1 opacity-80" />;
+            case 'angry': return <Frown className="w-8 h-8 mb-1 opacity-80" />;
+            case 'confused': return <HelpCircle className="w-8 h-8 mb-1 opacity-80" />;
+            case 'cheeky': return <Zap className="w-8 h-8 mb-1 opacity-80" />;
+            case 'evil': return <Ghost className="w-8 h-8 mb-1 opacity-80" />;
+            default: return <Meh className="w-8 h-8 mb-1 opacity-80" />;
+        }
+    };
 
-  // Determine if a custom color is selected (not in preset list)
-  const isCustomSelected = !SNAKE_COLORS.includes(selectedColor);
-
-  useEffect(() => {
-    if (initialValues) {
-      setName(initialValues.name || 'NeonSurfer');
-      if (initialValues.color) {
-         if (SNAKE_COLORS.includes(initialValues.color)) {
-             setSelectedColor(initialValues.color);
-         } else if (initialValues.color.startsWith('#')) {
-             setSelectedColor(initialValues.color);
-             setCustomColor(initialValues.color);
-         }
-      }
-      if (initialValues.pattern) setSelectedPattern(initialValues.pattern);
-      if (initialValues.skin) setSelectedSkin(initialValues.skin);
-      if (initialValues.face) setSelectedFace(initialValues.face);
-      if (initialValues.speed) setSelectedSpeed(initialValues.speed);
-    }
-  }, [initialValues]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (name.trim()) onStart(name, selectedColor, selectedPattern, selectedSkin, selectedFace, selectedSpeed);
-  };
-
-  const renderSkinIcon = (skin: SnakeSkin) => {
-      switch (skin) {
-          case 'digital': return <Square className="w-8 h-8 mb-1 opacity-80" />;
-          case 'shard': return <Triangle className="w-8 h-8 mb-1 opacity-80" />;
-          case 'ghost': return <Ghost className="w-8 h-8 mb-1 opacity-80" />;
-          case 'pixel': return <Grid3x3 className="w-8 h-8 mb-1 opacity-80" />;
-          case 'cobra': return <Shield className="w-8 h-8 mb-1 opacity-80" />;
-          case 'flames': return <Flame className="w-8 h-8 mb-1 opacity-80 text-orange-500" />;
-          default: return <Circle className="w-8 h-8 mb-1 opacity-80" />;
-      }
-  };
-
-  const renderFaceIcon = (face: SnakeFace) => {
-      switch (face) {
-          case 'happy': return <Smile className="w-8 h-8 mb-1 opacity-80" />;
-          case 'angry': return <Frown className="w-8 h-8 mb-1 opacity-80" />;
-          case 'confused': return <HelpCircle className="w-8 h-8 mb-1 opacity-80" />;
-          case 'cheeky': return <Zap className="w-8 h-8 mb-1 opacity-80" />;
-          case 'evil': return <Ghost className="w-8 h-8 mb-1 opacity-80" />;
-          default: return <Meh className="w-8 h-8 mb-1 opacity-80" />;
-      }
-  };
-
-  return (
+    return (
     <div className="absolute inset-0 flex items-center justify-center bg-slate-900/95 backdrop-blur-md z-50 p-4">
       <style>{`
         .scrollbar-hide::-webkit-scrollbar {
@@ -591,7 +579,6 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStart, lastScore, commentar
                     <div className="animate-fade-in">
                          <h2 className="text-2xl font-black text-red-500 tracking-tight mb-1">ELIMINATED</h2>
                          <div className="text-white text-4xl font-mono font-bold mb-4">{lastScore} <span className="text-sm text-slate-400 font-sans font-normal">PTS</span></div>
-                         {commentary && <p className="text-xs text-purple-300 italic border-l-2 border-purple-500 pl-2 text-left">"{commentary}"</p>}
                     </div>
                 ) : (
                     <div>
@@ -603,20 +590,14 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStart, lastScore, commentar
                 )}
             </div>
 
-            <div className="flex-grow relative min-h-[150px] rounded-xl overflow-hidden">
+            <div className="flex-grow relative min-h-[150px] rounded-xl overflow-hidden bg-slate-800/50">
                 <div className="absolute -inset-4 bg-cyan-500/10 blur-2xl rounded-full"></div>
                 <SnakePreview color={selectedColor} skin={selectedSkin} pattern={selectedPattern} face={selectedFace} />
-                <div className="absolute bottom-4 left-0 w-full text-center pointer-events-none">
-                    <span className="px-3 py-1 bg-black/50 rounded-full text-[10px] text-cyan-300 uppercase tracking-wider border border-cyan-500/30 shadow-lg backdrop-blur-sm">
-                        {selectedSkin} • {selectedFace}
-                    </span>
-                </div>
             </div>
         </div>
 
         <div className="w-full md:w-2/3 p-6 md:p-8 flex flex-col overflow-y-auto scrollbar-hide">
-            <form onSubmit={handleSubmit} className="flex flex-col h-full">
-                
+            <form onSubmit={(e) => { e.preventDefault(); onStart(name, selectedColor, selectedPattern, selectedSkin, selectedFace, selectedSpeed); }} className="flex flex-col h-full">
                 <div className="mb-6 md:mb-8">
                     <label className="block text-slate-400 text-xs uppercase font-bold mb-2">Operator Name</label>
                     <input
@@ -709,10 +690,10 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStart, lastScore, commentar
                                         }`}
                                     >
                                         <div className="w-8 h-8 rounded bg-slate-900 border border-white/10 relative overflow-hidden">
-                                             {pattern === 'stripes' && <div className="absolute top-1/2 w-full h-1 bg-white/50 -translate-y-1/2"></div>}
-                                             {pattern === 'spots' && <div className="absolute inset-0 flex items-center justify-center"><div className="w-2 h-2 bg-white/50 rounded-full"></div></div>}
-                                             {pattern === 'waves' && <div className="absolute inset-0 flex items-center justify-center text-[8px]">~</div>}
-                                             {pattern === 'camouflage' && <div className="absolute top-0 left-0 w-4 h-4 bg-white/30 rotate-45"></div>}
+                                                {pattern === 'stripes' && <div className="absolute top-1/2 w-full h-1 bg-white/50 -translate-y-1/2"></div>}
+                                                {pattern === 'spots' && <div className="absolute inset-0 flex items-center justify-center"><div className="w-2 h-2 bg-white/50 rounded-full"></div></div>}
+                                                {pattern === 'waves' && <div className="absolute inset-0 flex items-center justify-center text-[8px]">~</div>}
+                                                {pattern === 'camouflage' && <div className="absolute top-0 left-0 w-4 h-4 bg-white/30 rotate-45"></div>}
                                         </div>
                                         <span className="text-xs uppercase font-bold">{pattern}</span>
                                         {selectedPattern === pattern && <Check className="w-4 h-4 ml-auto text-cyan-400" />}
@@ -753,11 +734,10 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStart, lastScore, commentar
                                         }}
                                         value={customColor}
                                     />
-                                    {/* Show the custom color as background if selected, otherwise icon */}
                                     {isCustomSelected ? (
-                                       <div className="absolute inset-0 w-full h-full" style={{ background: customColor }}></div>
+                                        <div className="absolute inset-0 w-full h-full" style={{ background: customColor }}></div>
                                     ) : (
-                                       <Palette className="w-5 h-5 text-slate-300 pointer-events-none" />
+                                        <Palette className="w-5 h-5 text-slate-300 pointer-events-none" />
                                     )}
                                     {isCustomSelected && <Check className="w-6 h-6 text-black/50 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20" strokeWidth={3} />}
                                 </div>
@@ -788,14 +768,14 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStart, lastScore, commentar
                     </div>
 
                     <button
-                        type="submit"
+                        onClick={() => onStart(name, selectedColor, selectedPattern, selectedSkin, selectedFace, selectedSpeed)}
+                        type="button"
                         className="flex-1 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg shadow-cyan-500/20 transform hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
                     >
                         <Play className="w-5 h-5 fill-current" />
                         {lastScore !== undefined ? 'RE-ENGAGE' : 'START'}
                     </button>
                 </div>
-
             </form>
         </div>
       </div>
